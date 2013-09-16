@@ -343,7 +343,7 @@ namespace NuGet.Lucene
 
             if (string.IsNullOrWhiteSpace(lucenePackage.Path))
             {
-                lucenePackage.Path = GetPackageFilePath(lucenePackage);    
+                lucenePackage.Path = GetPackageFilePath(lucenePackage);
             }
 
             CalculateDerivedData(package, lucenePackage, lucenePackage.Path, lucenePackage.GetStream);
