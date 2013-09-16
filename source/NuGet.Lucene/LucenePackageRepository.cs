@@ -82,14 +82,14 @@ namespace NuGet.Lucene
         public async Task RemovePackageAsync(IPackage package)
         {
             base.RemovePackage(package);
-            
+
             await Indexer.RemovePackage(package);
         }
 
         public override void RemovePackage(IPackage package)
         {
             var task = Task.Run(() => RemovePackageAsync(package));
-            
+
             task.Wait();
         }
 
@@ -135,7 +135,7 @@ namespace NuGet.Lucene
             {
                 packages = packages.Where(p => !p.IsPrerelease);
             }
-            
+
             return packages;
         }
 
@@ -278,7 +278,7 @@ namespace NuGet.Lucene
             }
 
             package.PackageHashAlgorithm = HashAlgorithm;
-            package.LastUpdated = FileSystem.GetLastModified(path);
+            package.LastUpdated = package.Created;
             package.Published = package.LastUpdated;
             package.Path = path;
 
