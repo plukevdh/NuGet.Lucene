@@ -88,13 +88,21 @@ namespace NuGet.Lucene.Web.Tests
             {
                 var methods = GetSupportedMethods("api/users");
 
-                Assert.That(methods, Is.EquivalentTo(new[] { HttpMethod.Get }));
+                Assert.That(methods, Is.EquivalentTo(new[] { HttpMethod.Get, HttpMethod.Delete }));
             }
 
             [Test]
             public void SpecificUser()
             {
                 var methods = GetSupportedMethods("api/users/example");
+
+                Assert.That(methods, Is.EquivalentTo(new[] { HttpMethod.Get, HttpMethod.Put, HttpMethod.Delete }));
+            }
+
+            [Test]
+            public void SpecificUserWithSlash()
+            {
+                var methods = GetSupportedMethods("api/users/domain/user");
 
                 Assert.That(methods, Is.EquivalentTo(new[] { HttpMethod.Get, HttpMethod.Put, HttpMethod.Delete }));
             }

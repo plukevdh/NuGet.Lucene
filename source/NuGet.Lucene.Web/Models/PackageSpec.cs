@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using AspNet.WebApi.HtmlMicrodataFormatter;
@@ -26,7 +25,10 @@ namespace NuGet.Lucene.Web.Models
         public PackageSpec(string id, string version)
         {
             Id = id;
-            Version = new SemanticVersion(version);
+            if (!string.IsNullOrEmpty(version))
+            {
+                Version = new SemanticVersion(version);
+            }
         }
 
         public override Stream GetStream()
@@ -39,7 +41,7 @@ namespace NuGet.Lucene.Web.Models
             throw new NotSupportedException();
         }
 
-        protected override IEnumerable<IPackageAssemblyReference> GetAssemblyReferencesBase()
+        protected override IEnumerable<IPackageAssemblyReference> GetAssemblyReferencesCore()
         {
             throw new NotSupportedException();
         }

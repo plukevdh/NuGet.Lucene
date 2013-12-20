@@ -1,92 +1,141 @@
 ﻿using System;
+using System.Linq;
 using System.Reactive.Linq;
 using System.Reflection;
 using Microsoft.AspNet.SignalR;
 using Microsoft.AspNet.SignalR.Infrastructure;
-using Microsoft.AspNet.SignalR.Json;
+using Microsoft.Owin.Cors;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using Ninject;
 using Ninject.Modules;
 using NuGet.Lucene.Web.Hubs;
+using Owin;
 
 namespace NuGet.Lucene.Web
 {
-    public class SignalRModule : NinjectModule
+    public class SignalRStartup
     {
-        public override void Load()
+        private static IKernel kernel;
+
+        public void Configuration(IAppBuilder app)
         {
+            if (kernel == null)
+            {
+                throw new InvalidOperationException("Ninject kernel must be set first.");
+            }
+
             var settings = new JsonSerializerSettings
+            {
+                ContractResolver = new SelectiveCamelCaseContractResolver(),
+                Converters = { new StringEnumConverter() },
+            };
+
+            var jsonNetSerializer = JsonSerializer.Create(settings);
+
+            var resolver = new NinjectSignalRDependencyResolver(kernel);
+            resolver.Register(typeof(JsonSerializer), () => jsonNetSerializer);
+
+            var hubConfiguration = new HubConfiguration
+            {
+                EnableDetailedErrors = NuGetWebApiModule.ShowExceptionDetails,
+                EnableJSONP = NuGetWebApiModule.EnableCrossDomainRequests,
+                Resolver = resolver
+            };
+
+            app.Map("/api/signalr", map =>
+            {
+                if (NuGetWebApiModule.EnableCrossDomainRequests)
                 {
-                    ContractResolver = new SelectiveCamelCaseContractResolver(),
-                    Converters = { new StringEnumConverter() }
-                };
+                    map.UseCors(CorsOptions.AllowAll);
+                }
+                map.RunSignalR(hubConfiguration);
+            });
 
-            var jsonNetSerializer = new JsonNetSerializer(settings);
-            
-            GlobalHost.DependencyResolver = new NinjectSignalRDependencyResolver(Kernel);
-            GlobalHost.DependencyResolver.Register(typeof(IJsonSerializer), () => jsonNetSerializer);
+            var connectionManager = resolver.Resolve<IConnectionManager>();
 
-            var hub = GlobalHost.ConnectionManager.GetHubContext<StatusHub>();
+            var hub = connectionManager.GetHubContext<StatusHub>();
 
-            var repository = Kernel.Get<ILucenePackageRepository>();
+            var repository = kernel.Get<ILucenePackageRepository>();
 
             repository.StatusChanged
                 .Sample(TimeSpan.FromMilliseconds(250))
                 .Subscribe(status => hub.Clients.All.updateStatus(status));
         }
-        
-        /// <summary>
-        /// Uses default contract resolver for types in the SignalR assembly
-        /// and camel case for all other types.
-        /// </summary>
-        public class SelectiveCamelCaseContractResolver : IContractResolver
+
+        internal static void SetKernel(IKernel kernel)
         {
-            private readonly Assembly signalrAssembly;
-            private readonly IContractResolver camelCaseContractResolver;
-            private readonly IContractResolver defaultContractSerializer;
+            SignalRStartup.kernel = kernel;
+        }
+    }
 
-            public SelectiveCamelCaseContractResolver()
-            {
-                defaultContractSerializer = new DefaultContractResolver();
-                camelCaseContractResolver = new CamelCasePropertyNamesContractResolver();
-                signalrAssembly = typeof(Connection).Assembly;
-            }
+    public class SignalRModule : NinjectModule
+    {
+        public override void Load()
+        {
+            SignalRStartup.SetKernel(Kernel);
+            Kernel.Bind<StatusHub>().ToSelf();
+        }
+    }
 
-            public JsonContract ResolveContract(Type type)
-            {
-                if (type.Assembly.Equals(signalrAssembly))
-                    return defaultContractSerializer.ResolveContract(type);
+    public class NinjectSignalRDependencyResolver : DefaultDependencyResolver
+    {
+        private readonly IKernel kernel;
 
-                return camelCaseContractResolver.ResolveContract(type);
-            }
+        public NinjectSignalRDependencyResolver(IKernel kernel)
+        {
+            this.kernel = kernel;
         }
 
-        public class NinjectSignalRDependencyResolver : DefaultDependencyResolver
+        public override object GetService(Type serviceType)
         {
-            private readonly IKernel kernel;
+            object svc;
 
-            public NinjectSignalRDependencyResolver(IKernel kernel)
+            if (kernel.GetBindings(serviceType).Any())
             {
-                this.kernel = kernel;
-            }
-
-            public override object GetService(Type serviceType)
-            {
-                var svc = kernel.TryGet(serviceType);
-
-                if (svc != null) return svc;
-
-                svc = base.GetService(serviceType);
+                svc = kernel.TryGet(serviceType);
 
                 if (svc != null)
                 {
-                    kernel.Inject(svc);
+                    return svc;
                 }
-
-                return svc;
             }
+
+            svc = base.GetService(serviceType);
+
+            if (svc != null)
+            {
+                kernel.Inject(svc);
+            }
+
+            return svc;
+        }
+    }
+
+    /// <summary>
+    /// Uses default contract resolver for types in the SignalR assembly
+    /// and camel case for all other types.
+    /// </summary>
+    public class SelectiveCamelCaseContractResolver : IContractResolver
+    {
+        private readonly Assembly signalrAssembly;
+        private readonly IContractResolver camelCaseContractResolver;
+        private readonly IContractResolver defaultContractSerializer;
+
+        public SelectiveCamelCaseContractResolver()
+        {
+            defaultContractSerializer = new DefaultContractResolver();
+            camelCaseContractResolver = new CamelCasePropertyNamesContractResolver();
+            signalrAssembly = typeof(Connection).Assembly;
+        }
+
+        public JsonContract ResolveContract(Type type)
+        {
+            if (type.Assembly.Equals(signalrAssembly))
+                return defaultContractSerializer.ResolveContract(type);
+
+            return camelCaseContractResolver.ResolveContract(type);
         }
     }
 }
