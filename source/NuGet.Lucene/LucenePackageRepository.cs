@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Packaging;
 using System.Linq;
+using System.Linq.Expressions;
+using System.Net;
 using System.Reactive.Linq;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -54,11 +57,54 @@ namespace NuGet.Lucene
         {
             Log.Info(m => m("Adding package {0} {1} to file system", package.Id, package.Version));
 
-            base.AddPackage(package);
+            var lucenePackage = await AddPackageToFileSystemAsync(package);
 
             Log.Info(m => m("Indexing package {0} {1}", package.Id, package.Version));
 
-            await Indexer.AddPackage(Convert(package));
+            await Indexer.AddPackage(lucenePackage);
+        }
+
+        private async Task<LucenePackage> AddPackageToFileSystemAsync(IPackage package)
+        {
+            var dataPackage = package as DataServicePackage;
+
+            if (dataPackage == null)
+            {
+                base.AddPackage(package);
+                return Convert(package);
+            }
+
+            var parent = PathResolver.GetInstallPath(package);
+            var path = Path.Combine(parent, PathResolver.GetPackageFileName(package));
+            var tcs = new TaskCompletionSource<object>();
+
+            if (!Directory.Exists(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            var client = new WebClient();
+            client.DownloadFileCompleted += (s, e) =>
+            {
+                if (e.Error != null)
+                {
+                    tcs.SetException(e.Error);
+                }
+                else
+                {
+                    tcs.SetResult(e);
+                }
+            };
+
+            client.Headers.Add(RepositoryOperationNames.OperationHeaderName, RepositoryOperationNames.Mirror);
+            client.DownloadFileAsync(dataPackage.DownloadUrl, path);
+
+            await (tcs.Task.ContinueWith(_ => client.Dispose()));
+
+            var lucenePackage = LoadFromFileSystem(path);
+            lucenePackage.OriginUrl = dataPackage.DownloadUrl;
+            lucenePackage.IsMirrored = true;
+            return lucenePackage;
         }
 
         public override void AddPackage(IPackage package)
@@ -116,27 +162,74 @@ namespace NuGet.Lucene
 
         public IQueryable<IPackage> Search(string searchTerm, IEnumerable<string> targetFrameworks, bool allowPrereleaseVersions)
         {
+            return Search(new SearchCriteria(searchTerm)
+                {
+                    TargetFrameworks = targetFrameworks,
+                    AllowPrereleaseVersions = allowPrereleaseVersions
+                });
+        }
+
+        public IQueryable<IPackage> Search(SearchCriteria criteria)
+        {
             var packages = LucenePackages;
 
-            if (!string.IsNullOrEmpty(searchTerm))
+            if (!string.IsNullOrEmpty(criteria.SearchTerm))
             {
                 packages = from
                                 pkg in packages
                            where
-                                ((pkg.Id == searchTerm || pkg.Title == searchTerm).Boost(3) ||
-                                (pkg.Tags == searchTerm).Boost(2) ||
-                                (pkg.Authors.Contains(searchTerm) || pkg.Owners.Contains(searchTerm)).Boost(2) ||
-                                (pkg.Summary == searchTerm || pkg.Description == searchTerm)).AllowSpecialCharacters()
+                                ((pkg.Id == criteria.SearchTerm || pkg.Title == criteria.SearchTerm).Boost(3) ||
+                                (pkg.Tags == criteria.SearchTerm).Boost(2) ||
+                                (pkg.Authors.Contains(criteria.SearchTerm) || pkg.Owners.Contains(criteria.SearchTerm)).Boost(2) ||
+                                (pkg.Summary == criteria.SearchTerm || pkg.Description == criteria.SearchTerm)).AllowSpecialCharacters()
                            select
                                pkg;
             }
 
-            if (!allowPrereleaseVersions)
+            if (!criteria.AllowPrereleaseVersions)
             {
                 packages = packages.Where(p => !p.IsPrerelease);
             }
 
+            if (criteria.PackageOriginFilter != PackageOriginFilter.Any)
+            {
+                var flag = criteria.PackageOriginFilter == PackageOriginFilter.Mirror;
+                packages = packages.Where(p => p.IsMirrored == flag);
+            }
+
+            packages = ApplySort(criteria, packages);
+
             return packages;
+        }
+
+        private static IQueryable<LucenePackage> ApplySort(SearchCriteria criteria, IQueryable<LucenePackage> packages)
+        {
+            Expression<Func<LucenePackage, object>> sortSelector = null;
+
+            switch (criteria.SortField)
+            {
+                case SearchSortField.Id:
+                    sortSelector = p => p.Id;
+                    break;
+                case SearchSortField.Title:
+                    sortSelector = p => p.Title;
+                    break;
+                case SearchSortField.Published:
+                    sortSelector = p => p.Published;
+                    break;
+                case SearchSortField.Score:
+                    sortSelector = p => p.Score();
+                    break;
+            }
+
+            if (sortSelector == null)
+            {
+                return packages;
+            }
+
+            return criteria.SortDirection == SearchSortDirection.Ascending
+                    ? packages.OrderBy(sortSelector)
+                    : packages.OrderByDescending(sortSelector);
         }
 
         public IEnumerable<IPackage> GetUpdates(IEnumerable<IPackage> packages, bool includePrerelease, bool includeAllVersions,
@@ -250,7 +343,7 @@ namespace NuGet.Lucene
             var path = GetPackageFilePath(lucenePackage);
             lucenePackage.Path = path;
 
-            CalculateDerivedData(package, lucenePackage, path, lucenePackage.GetStream());
+            CalculateDerivedData(package, lucenePackage, path, () => lucenePackage.GetStream());
 
             return lucenePackage;
         }
@@ -295,12 +388,12 @@ namespace NuGet.Lucene
             return uri;
         }
 
-        protected virtual void CalculateDerivedData(IPackage sourcePackage, LucenePackage package, string path, Stream stream)
+        protected virtual void CalculateDerivedData(IPackage sourcePackage, LucenePackage package, string path, Func<Stream> openStream)
         {
             var fastPackage = sourcePackage as FastZipPackage;
             if (fastPackage == null)
             {
-                CalculateDerivedDataSlowlyConsumingLotsOfMemory(package, stream);
+                CalculateDerivedDataSlowlyConsumingLotsOfMemory(package, openStream);
             }
             else
             {
@@ -333,10 +426,10 @@ namespace NuGet.Lucene
             return lastModified;
         }
 
-        private void CalculateDerivedDataSlowlyConsumingLotsOfMemory(LucenePackage package, Stream stream)
+        private void CalculateDerivedDataSlowlyConsumingLotsOfMemory(LucenePackage package, Func<Stream> openStream)
         {
             byte[] fileBytes;
-            using (stream)
+            using (var stream = openStream())
             {
                 fileBytes = stream.ReadAllBytes();
             }

@@ -1,14 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Dynamic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Security.Principal;
 using System.Web.Http;
-using Lucene.Net.Index;
-using Lucene.Net.Linq;
-using Lucene.Net.Search;
 using NuGet.Lucene.Web.Authentication;
 using NuGet.Lucene.Web.Models;
 
@@ -25,16 +21,14 @@ namespace NuGet.Lucene.Web.Controllers
     /// </summary>
     public class UsersController : ApiController
     {
-        public LuceneDataProvider Provider { get; set; }
+        public UserStore Store { get; set; }
 
         /// <summary>
         /// Retrieves a list of all users.
         /// </summary>
         public IEnumerable<ApiUser> GetAllUsers()
         {
-            return Provider.AsQueryable<ApiUser>()
-                .Select(DescribeUser)
-                .ToList();
+            return Store.Users.OrderBy(u => u.Username).Select(DescribeUser).ToList();
         }
 
         /// <summary>
@@ -44,8 +38,7 @@ namespace NuGet.Lucene.Web.Controllers
         {
             username = ScrubUsername(username);
 
-            var user = Provider.AsQueryable<ApiUser>()
-                .SingleOrDefault(u => u.Username == username);
+            var user = Store.Users.SingleOrDefault(u => u.Username == username);
 
             if (user == null)
             {
@@ -72,9 +65,65 @@ namespace NuGet.Lucene.Web.Controllers
                 attributes.Key = Guid.NewGuid().ToString();
             }
 
-            using (var session = Provider.OpenSession<ApiUser>())
+            using (var session = Store.OpenSession())
             {
+                if (!attributes.Overwrite && session.Query().Any(u => u.Username == username))
+                {
+                    return Request.CreateErrorResponse(HttpStatusCode.Conflict,
+                        "User " + username + " already exists.");
+                }
+
                 session.Add(new ApiUser{Username = username, Key = attributes.Key, Roles = attributes.Roles});
+            }
+
+            return Request.CreateResponse(HttpStatusCode.Created);
+        }
+
+        /// <summary>
+        /// Updates an existing user, optionally renaming.
+        /// </summary>
+        /// <param name="username"></param>
+        /// <param name="attributes"></param>
+        /// <returns></returns>
+        [Authorize(Roles = RoleNames.AccountAdministrator)]
+        public HttpResponseMessage Post(string username, [FromBody]UpdateUserAttributes attributes)
+        {
+            username = ScrubUsername(username);
+            var renameTo = ScrubUsername(attributes.RenameTo);
+
+            using (var session = Store.OpenSession())
+            {
+                var user = session.Query().SingleOrDefault(u => u.Username == username);
+
+                if (user == null)
+                {
+                    return Request.CreateErrorResponse(HttpStatusCode.NotFound, "User" + username + " not found.");
+                }
+
+                if (attributes.Key != null)
+                {
+                    user.Key = attributes.Key;
+                }
+
+                if (attributes.Roles != null)
+                {
+                    user.Roles = attributes.Roles;
+                }
+
+                if (attributes.RenameTo == null)
+                {
+                    return Request.CreateResponse(HttpStatusCode.Created);
+                }
+
+                var isRenamingToDifferentName = !renameTo.Equals(username, StringComparison.InvariantCultureIgnoreCase);
+
+                if (isRenamingToDifferentName && !attributes.Overwrite && session.Query().Any(u => u.Username == renameTo))
+                {
+                    return Request.CreateErrorResponse(HttpStatusCode.Conflict,
+                        "User " + attributes.RenameTo + " already exists.");
+                }
+
+                user.Username = attributes.RenameTo;
             }
 
             return Request.CreateResponse(HttpStatusCode.Created);
@@ -85,7 +134,7 @@ namespace NuGet.Lucene.Web.Controllers
         {
             username = ScrubUsername(username);
 
-            using (var session = Provider.OpenSession<ApiUser>())
+            using (var session = Store.OpenSession())
             {
                 var user = session.Query().SingleOrDefault(u => u.Username == username);
 
@@ -102,10 +151,9 @@ namespace NuGet.Lucene.Web.Controllers
         [Authorize(Roles = RoleNames.AccountAdministrator)]
         public HttpResponseMessage DeleteAllUsers()
         {
-            using (var session = Provider.OpenSession<ApiUser>())
+            using (var session = Store.OpenSession())
             {
-                // faster than retrieving each user and deleting by ID.
-                session.Delete(new WildcardQuery(new Term("Username", "*")));
+                session.DeleteAll();
             }
 
             return Request.CreateResponse(HttpStatusCode.NoContent);
@@ -139,11 +187,11 @@ namespace NuGet.Lucene.Web.Controllers
         {
             var name = ScrubUsername(User.Identity.Name);
 
-            var apiUser = Provider.AsQueryable<ApiUser>().SingleOrDefault(u => u.Username == name);
+            var apiUser = Store.Users.SingleOrDefault(u => u.Username == name);
 
             if (apiUser != null) return apiUser;
 
-            using (var session = Provider.OpenSession<ApiUser>())
+            using (var session = Store.OpenSession())
             {
                 apiUser = new ApiUser { Username = name, Key = Guid.NewGuid().ToString(), Roles = GetUserRoles(User) };
                 session.Add(apiUser);
@@ -151,9 +199,31 @@ namespace NuGet.Lucene.Web.Controllers
 
             return apiUser;
         }
-        
+
+        /// <summary>
+        /// Changes the API key of the authenticated user.
+        /// </summary>
+        [Authorize]
+        [HttpPost]
+        public KeyChangeRequest ChangeApiKey([FromBody]KeyChangeRequest req)
+        {
+            if (string.IsNullOrWhiteSpace(req.Key))
+            {
+                req.Key = Guid.NewGuid().ToString();
+            }
+
+            using (var session = Store.OpenSession())
+            {
+                var apiUser = session.Query().Single(u => u.Username == ScrubUsername(User.Identity.Name));
+                apiUser.Key = req.Key;
+            }
+
+            return req;
+        }
+
         private static string ScrubUsername(string username)
         {
+            if (string.IsNullOrWhiteSpace(username)) return "";
             return username.Replace('\\', '/');
         }
 

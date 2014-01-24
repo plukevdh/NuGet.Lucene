@@ -48,9 +48,9 @@
     <Reference Include="Lucene.Net">
       <HintPath>..\packages\Lucene.Net.3.0.3\lib\NET40\Lucene.Net.dll</HintPath>
     </Reference>
-    <Reference Include="Lucene.Net.Linq, Version=3.2.54.0, Culture=neutral, processorArchitecture=MSIL">
+    <Reference Include="Lucene.Net.Linq, Version=3.2.55.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\Lucene.Net.Linq.3.2.54\lib\net40\Lucene.Net.Linq.dll</HintPath>
+      <HintPath>..\packages\Lucene.Net.Linq.3.2.55\lib\net40\Lucene.Net.Linq.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Web.Infrastructure, Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <Private>True</Private>
@@ -110,8 +110,11 @@
     <Compile Include="FastZipPackage.cs" />
     <Compile Include="LuceneRepositoryConfigurator.cs" />
     <Compile Include="Mapping\CachingVersionConverter.cs" />
-    <Compile Include="OneFolderPerPackageIdPathResolver.cs" />
+    <Compile Include="GroupingPackagePathResolver.cs" />
+    <Compile Include="PackageOriginFilter.cs" />
     <Compile Include="PorterStemAnalyzer.cs" />
+    <Compile Include="SearchCriteria.cs" />
+    <Compile Include="SearchSortField.cs" />
     <Compile Include="Util\CollectionExtensions.cs" />
     <Compile Include="Util\DateTimeUtils.cs" />
     <Compile Include="ILucenePackageRepository.cs" />
@@ -131,6 +134,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="StrictSemanticVersion.cs" />
     <Compile Include="Util\FileSystemExtensions.cs" />
+    <Compile Include="Util\PackageQueryableExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="NuGet.Lucene.nuspec" />
