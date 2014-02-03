@@ -21,6 +21,10 @@ as follows:
     protected void Application_Start(object sender, EventArgs e)
     {
         var routeMapper = kernel.Get<NuGetWebApiRouteMapper>();
+
+		// Optional: redirect NuGet client / Visual Studio from ~/ to ~/api/odata:
+        routeMapper.MapNuGetClientRedirectRoutes(GlobalConfiguration.Configuration);
+
         routeMapper.MapApiRoutes(GlobalConfiguration.Configuration);
         routeMapper.MapDataServiceRoutes(RouteTable.Routes);
 
@@ -61,3 +65,37 @@ information when enabled. Default: false.
 * NuGet.Lucene.Web:enablePackageFileWatcher flag indicating if a file system watcher should monitor the packages path for changes to keep the index in sync. Use this setting if any external process adds or removes package files. Default: true
 * NuGet.Lucene.Web:synchronizeOnStart when true, scans the packagesPath and compares nupkg files with the Lucene index and updates the Lucene index to match the file system. This setting enables the Lucene index to be kept in sync when package files change while the web app isn't running. Default: true
 * NuGet.Lucene.Web:groupPackageFilesById when true, package files are stored into subdirectories by package ID. When false, all packages are stored in the top-level packages path. Default: true
+* NuGet.Lucene.Web:handleLocalRequestsAsAdmin when true, requests on local interfaces (127.0.0.1, ::1) are automatically granted administrative permissions
+* NuGet.Lucene.Web:localAdministratorApiKey when non-blank, sets the api key on the LocalAdministrator account to a specific value instead of generating one
+* NuGet.Lucene.Web:allowAnonymousPackageChanges when true, does not require an api key or other authentication to push and delete packages
+
+### Role mapping
+
+NuGet.Lucene.Web uses the roles AccountAdministrator and PackageManager to control
+access to methods that manage user accounts and upload and delete packages, respectively.
+
+For enterprises using Windows authentication you may have groups that you want to alias
+to these roles instead of creating new security groups in Active Directory.
+
+To do this, define the roleMappings config section with your security groups:
+
+```xml
+<configuration>
+  <configSections>
+    <sectionGroup name="common">
+      <section name="logging" type="Common.Logging.ConfigurationSectionHandler, Common.Logging" />
+    </sectionGroup>
+    <section name="log4net" type="log4net.Config.Log4NetConfigurationSectionHandler, log4net" />
+    <section name="roleMappings" type="System.Configuration.NameValueSectionHandler" />
+  </configSections>
+  <appSettings>
+  <roleMappings>
+    <add key="PackageManager" value="DOMAIN\Developers"/>
+    <add key="AccountAdministrator" value="DOMAIN\Administrators"/>
+  </roleMappings>
+</configuration>
+```
+
+Multiple roles can be specified in the value, delimited by commas.
+If multiple roles are specified, the user only needs to be in one
+of the roles to be considered a member of the target role.

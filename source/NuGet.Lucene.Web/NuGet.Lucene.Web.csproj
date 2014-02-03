@@ -176,7 +176,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Authentication\ApiUser.cs" />
+    <Compile Include="Authentication\ApiUserPrincipal.cs" />
     <Compile Include="DataServices\IOperationContext.cs" />
+    <Compile Include="DeletePackageRedirectHandler.cs" />
     <Compile Include="Formatters\NuGetHtmlMicrodataFormatter.cs" />
     <Compile Include="Formatters\PackageHtmlSerializer.cs" />
     <Compile Include="Formatters\PackageSummaryListSerializer.cs" />
@@ -188,6 +190,8 @@
     <Compile Include="Models\UserAttributes.cs" />
     <Compile Include="Modules\AnonymousPackageManagerModule.cs" />
     <Compile Include="Modules\LocalRequestAuthenticationModule.cs" />
+    <Compile Include="Modules\RoleMappingAuthenticationModule.cs" />
+    <Compile Include="NuGetUserAgentConstraint.cs" />
     <Compile Include="NuGetWebApiModule.cs" />
     <Compile Include="Authentication\IApiKeyAuthentication.cs" />
     <Compile Include="Authentication\LuceneApiKeyAuthentication.cs" />
@@ -213,6 +217,7 @@
     <Compile Include="MirroringPackageRepositoryFactory.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="NuGetWebApiRouteMapper.cs" />
+    <Compile Include="RedirectHandler.cs" />
     <Compile Include="RoleNames.cs" />
     <Compile Include="RouteNames.cs" />
     <Compile Include="SemanticVersionConstraint.cs" />
@@ -222,6 +227,7 @@
     <Compile Include="UnhandledExceptionLogger.cs" />
     <Compile Include="UserStore.cs" />
     <Compile Include="Util\DynamicUtils.cs" />
+    <Compile Include="Util\ICache.cs" />
     <Compile Include="Util\TaskUtils.cs" />
     <None Include="readme.markdown" />
   </ItemGroup>

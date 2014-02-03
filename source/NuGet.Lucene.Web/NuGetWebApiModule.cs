@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Configuration;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Web;
 using System.Web.Hosting;
@@ -39,13 +41,13 @@ namespace NuGet.Lucene.Web
 
             var routeMapper = new NuGetWebApiRouteMapper(RoutePathPrefix);
             var mirroringPackageRepository = MirroringPackageRepositoryFactory.Create(cfg.Repository, PackageMirrorTargetUrl, PackageMirrorTimeout);
-            var usersDataProvider = InitializeUsersDataProvider();
+            var userStore = InitializeUserStore();
 
             Bind<NuGetWebApiRouteMapper>().ToConstant(routeMapper);
             Bind<ILucenePackageRepository>().ToConstant(cfg.Repository).OnDeactivation(_ => cfg.Dispose());
             Bind<IMirroringPackageRepository>().ToConstant(mirroringPackageRepository);
             Bind<LuceneDataProvider>().ToConstant(cfg.Provider);
-            Bind<UserStore>().ToConstant(new UserStore(usersDataProvider));
+            Bind<UserStore>().ToConstant(userStore);
             
             LoadAuthentication();
 
@@ -75,6 +77,23 @@ namespace NuGet.Lucene.Web
             {
                 Bind<IHttpModule>().To<LocalRequestAuthenticationModule>();
             }
+
+            if (RoleMappingsEnabled)
+            {
+                Bind<IHttpModule>().To<RoleMappingAuthenticationModule>();
+            }
+        }
+
+        public virtual UserStore InitializeUserStore()
+        {
+            var usersDataProvider = InitializeUsersDataProvider();
+            var userStore = new UserStore(usersDataProvider)
+            {
+                LocalAdministratorApiKey = GetAppSetting("localAdministratorApiKey", string.Empty),
+                HandleLocalRequestsAsAdmin = HandleLocalRequestsAsAdmin
+            };
+            userStore.Initialize();
+            return userStore;
         }
 
         public virtual LuceneDataProvider InitializeUsersDataProvider()
@@ -126,6 +145,25 @@ namespace NuGet.Lucene.Web
                 return TimeSpan.TryParse(str, out ts) ? ts : TimeSpan.FromSeconds(15);
             }
         }
+
+        public static bool RoleMappingsEnabled
+        {
+            get
+            {
+                var mappings = RoleMappings;
+                return mappings.AllKeys.Any(key => !string.IsNullOrWhiteSpace(mappings.Get(key)));
+            }
+        }
+
+        public static NameValueCollection RoleMappings
+        {
+            get
+            {
+                var mappings = ConfigurationManager.GetSection("roleMappings") as NameValueCollection;
+                return mappings ?? new NameValueCollection();
+            }
+        }
+
         internal static bool GetFlagFromAppSetting(string key, bool defaultValue)
         {
             var flag = GetAppSetting(key, string.Empty);
