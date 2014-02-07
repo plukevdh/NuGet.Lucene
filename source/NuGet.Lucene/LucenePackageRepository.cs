@@ -318,8 +318,7 @@ namespace NuGet.Lucene
         public LucenePackage LoadFromFileSystem(string path)
         {
             var fullPath = FileSystem.GetFullPath(path);
-            var package = Convert(OpenPackage(fullPath), new LucenePackage(_ => FileSystem.OpenFile(path)));
-            package.Path = FileSystem.MakeRelative(path);
+            var package = Convert(OpenPackage(fullPath), new LucenePackage(FileSystem) { Path = FileSystem.MakeRelative(fullPath) });
             return package;
         }
 
@@ -342,10 +341,12 @@ namespace NuGet.Lucene
         {
             CopyPackageData(package, lucenePackage);
 
-            var path = GetPackageFilePath(lucenePackage);
-            lucenePackage.Path = path;
+            if (string.IsNullOrWhiteSpace(lucenePackage.Path))
+            {
+                lucenePackage.Path = GetPackageFilePath(lucenePackage);    
+            }
 
-            CalculateDerivedData(package, lucenePackage, path, () => lucenePackage.GetStream());
+            CalculateDerivedData(package, lucenePackage, lucenePackage.Path, lucenePackage.GetStream);
 
             return lucenePackage;
         }
